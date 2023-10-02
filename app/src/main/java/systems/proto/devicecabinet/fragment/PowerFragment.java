@@ -146,7 +146,9 @@ public class PowerFragment extends Fragment {
     public void screenOff() {
 
         rootView.setBackgroundColor(Color.BLACK);
-        getActivity().setVisible(false);
+        if (getActivity()!=null) {
+            getActivity().setVisible(false);
+        }
 
     }
 }
