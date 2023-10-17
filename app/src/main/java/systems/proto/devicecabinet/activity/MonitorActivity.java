@@ -1,11 +1,22 @@
 package systems.proto.devicecabinet.activity;
 
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.app.ActivityCompat;
+import androidx.core.location.LocationManagerCompat;
 
+import android.Manifest;
+import android.animation.ArgbEvaluator;
+import android.animation.ValueAnimator;
 import android.content.ComponentName;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.ServiceConnection;
+import android.content.pm.PackageManager;
+import android.location.Location;
+import android.location.LocationListener;
+import android.location.LocationManager;
+import android.location.LocationRequest;
 import android.os.AsyncTask;
 import android.os.BatteryManager;
 import android.os.Bundle;
@@ -16,11 +27,13 @@ import android.util.Log;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
+import android.widget.Toast;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.security.Permission;
 
 import eu.hsah.dbobjects.DbObjects;
 import eu.hsah.dbobjects.Param;
@@ -33,8 +46,6 @@ public class MonitorActivity extends AppCompatActivity implements Runnable {
 
     public static final String LOGTAG = "MonitorActivity";
 
-    private static String DEFAULT_HOST = "sgbdumtom01:8080/Cabinet_Monitor";
-
     private PowerFragment powerFrag;
     private String androidId;
     private PowerManager.WakeLock wl;
@@ -42,6 +53,7 @@ public class MonitorActivity extends AppCompatActivity implements Runnable {
     private BufferedReader r;
     private DbObjects dbo;
     private boolean keepRunning;
+    private String command;
 
     private SleepLockService sleepLockService;
     private boolean boundSleepLockService;
@@ -49,14 +61,15 @@ public class MonitorActivity extends AppCompatActivity implements Runnable {
     private ServiceConnection bindConnection = new ServiceConnection() {
         @Override
         public void onServiceConnected(ComponentName componentName, IBinder iBinder) {
-            Log.d("SleepLockService","Sleep Service Bound!!");
+            Log.d("SleepLockService", "Sleep Service Bound!!");
             SleepLockService.SleepLockBinder b = (SleepLockService.SleepLockBinder) iBinder;
             sleepLockService = b.getService();
             boundSleepLockService = true;
         }
+
         @Override
         public void onServiceDisconnected(ComponentName componentName) {
-            Log.d("SleepLockService","Sleep Service Unbound!!");
+            Log.d("SleepLockService", "Sleep Service Unbound!!");
             boundSleepLockService = false;
         }
     };
@@ -66,7 +79,7 @@ public class MonitorActivity extends AppCompatActivity implements Runnable {
         super.onCreate(savedInstanceState);
 
         dbo = DbObjects.getInstance(this);
-        dbo.checkVersionUpdates(0,new int[0]);
+        dbo.checkVersionUpdates(0, new int[0]);
 
         Intent bindIntent = new Intent(this, SleepLockService.class);
         bindService(bindIntent, bindConnection, BIND_AUTO_CREATE);
@@ -83,23 +96,49 @@ public class MonitorActivity extends AppCompatActivity implements Runnable {
         androidId = Settings.Secure.getString(getContentResolver(),
                 Settings.Secure.ANDROID_ID);
 
-        if (getIntent()!=null && getIntent().getAction()!=null) {
+        powerFrag.setDeviceId(androidId);
+
+        if (getIntent() != null && getIntent().getAction() != null) {
             String a = getIntent().getAction();
-            Log.d(LOGTAG,"action: "+a);
+            Log.d(LOGTAG, "action: " + a);
             if ("off".equals(a)) {
                 deviceRemoved();
-            }
-            else if ("on".equals(a)) {
+            } else if ("on".equals(a)) {
                 if (thread == null) {
+                    Log.d(LOGTAG, "starting initial message listener");
                     keepRunning = true;
+                    command = "returned";
                     thread = new Thread(this);
                     thread.start();
                 }
             }
         }
 
-        powerFrag.setDeviceId(androidId);
+        /*
+        LocationManager locationManager = (LocationManager)
+                getSystemService(this.LOCATION_SERVICE);
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION},0);
+            return;
+        }
+        locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 5000, 2, new LocationListener() {
+            @Override
+            public void onLocationChanged(@NonNull Location location) {
+                Log.d(LOGTAG,"Im here: "+location);
+            }
 
+            @Override
+            public void onStatusChanged(String provider, int status, Bundle extras) {
+                Log.d(LOGTAG,provider+", "+status);
+            }
+        });
+        */
+
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
     }
 
     @Override
@@ -207,7 +246,7 @@ public class MonitorActivity extends AppCompatActivity implements Runnable {
                 Param p = Params.getParam(dbo,Params.PARAM_HOSTNAME);
                 URL url = new URL(String.format(
                         "http://%s/notify?id=%s&action=removed",
-                        p.strVal,androidId));
+                        p.strVal,androidId,command));
                 HttpURLConnection conn = (HttpURLConnection) url.openConnection();
                 BufferedReader in = new BufferedReader(new InputStreamReader(conn.getInputStream()));
                 in.close();
@@ -215,7 +254,7 @@ public class MonitorActivity extends AppCompatActivity implements Runnable {
                 Log.d(LOGTAG, "notified that device removed");
             }
             catch (Throwable ex) {
-                ex.printStackTrace();
+                Log.e(LOGTAG,"removing device",ex);
             }
             return null;
         }
@@ -234,18 +273,30 @@ public class MonitorActivity extends AppCompatActivity implements Runnable {
         try {
             Param p = Params.getParam(dbo,Params.PARAM_HOSTNAME);
             if (p.strVal==null) {
-                p.strVal = DEFAULT_HOST;
+                p.strVal = ConfigActivity.DEFAULT_HOST;
                 dbo.set(p);
             }
 
             URL url = new URL(String.format(
-                    "http://%s/notify?id=%s&action=returned",
-                    p.strVal,androidId));
+                    "http://%s/notify?id=%s&action=%s",
+                    p.strVal,androidId,command));
+            command = "none";
+            Log.d(LOGTAG, "connecting to "+url);
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
             r = new BufferedReader(new InputStreamReader(conn.getInputStream()));
+
             String s;
-            Log.d(LOGTAG, "Listening ...");
+            Log.d(LOGTAG, "listening ...");
+            boolean first = true;
             while ((s=r.readLine())!=null) {
+                if (first) {
+                    Log.d(LOGTAG, "screen off soon ...");
+                    try {
+                        Thread.sleep(500);
+                    } catch (InterruptedException e) { }
+                    screenOff();
+                    first = false;
+                }
                 Log.d(LOGTAG, "read: ["+s+"]");
                 if (s.contains("power")) {
                     screenOn();
@@ -257,9 +308,15 @@ public class MonitorActivity extends AppCompatActivity implements Runnable {
         }
         catch (Exception ex) {
             Log.e(LOGTAG, "aborted reader", ex);
+            runOnUiThread(()->{
+                Toast.makeText(this,ex.toString(),Toast.LENGTH_LONG).show();
+            });
         }
         catch (Throwable ex) {
             Log.e(LOGTAG, "aborted reader", ex);
+            runOnUiThread(()->{
+                Toast.makeText(this,ex.toString(),Toast.LENGTH_LONG).show();
+            });
         }
         finally {
             thread = null;
@@ -268,6 +325,10 @@ public class MonitorActivity extends AppCompatActivity implements Runnable {
         }
         if (keepRunning) {
             Log.d(LOGTAG, "restarting, as keep running set");
+            try {
+                Thread.sleep(30000);
+            } catch (InterruptedException e) {
+            }
             thread = new Thread(this);
             thread.start();
         }

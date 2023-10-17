@@ -3,6 +3,7 @@ package systems.proto.devicecabinet.activity;
 import androidx.appcompat.app.AppCompatActivity;
 
 import android.os.Bundle;
+import android.view.View;
 import android.widget.CheckBox;
 import android.widget.TextView;
 
@@ -12,6 +13,8 @@ import systems.proto.devicecabinet.R;
 import systems.proto.devicecabinet.data.Params;
 
 public class ConfigActivity extends AppCompatActivity {
+
+    public static String DEFAULT_HOST = "sgbdumtom01.covetrus.net:8080/Cabinet_Monitor";
 
     private CheckBox activeCB;
     private DbObjects dbo;
@@ -36,6 +39,10 @@ public class ConfigActivity extends AppCompatActivity {
         hostParam = Params.getParam(dbo,Params.PARAM_HOSTNAME);
         hostTV = (TextView) findViewById(R.id.hostname_tf);
         hostTV.setText(hostParam.strVal);
+        hostTV.setOnLongClickListener(view -> {
+            hostTV.setText(DEFAULT_HOST);
+            return false;
+        });
 
     }
 

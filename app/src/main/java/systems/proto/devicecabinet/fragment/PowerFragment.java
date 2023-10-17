@@ -1,5 +1,7 @@
 package systems.proto.devicecabinet.fragment;
 
+import android.animation.ArgbEvaluator;
+import android.animation.ValueAnimator;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.Color;
@@ -133,13 +135,15 @@ public class PowerFragment extends Fragment {
         float batteryPct = level * 100 / (float) scale;
         progress.setMax(scale);
         progress.setProgress(level);
+        int c;
         if (batteryPct < 50) {
-            rootView.setBackgroundColor(Color.rgb(255, 0, 0));
+            c = Color.rgb(255, 0, 0);
         } else if (batteryPct > 90) {
-            rootView.setBackgroundColor(Color.rgb(0, 255, 0));
+            c = Color.rgb(0, 255, 0);
         } else {
-            rootView.setBackgroundColor(Color.rgb(255, 165, 0));
+            c = Color.rgb(255, 165, 0);
         }
+        changeColor(rootView,Color.BLACK,c);
 
     }
 
@@ -151,4 +155,18 @@ public class PowerFragment extends Fragment {
         }
 
     }
+
+
+    private void changeColor(View view, int colorFrom, int colorTo) {
+        ValueAnimator colorAnimation = ValueAnimator.ofObject(new ArgbEvaluator(), colorFrom, colorTo);
+        colorAnimation.setDuration(500); // milliseconds
+        colorAnimation.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
+            @Override
+            public void onAnimationUpdate(ValueAnimator animator) {
+                view.setBackgroundColor((int) animator.getAnimatedValue());
+            }
+        });
+        colorAnimation.start();
+    }
+
 }
